@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Employee;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -50,52 +51,71 @@ class AttendanceController extends Controller
             'type' => ['required', 'in:Masuk,Pulang'],
         ]);
 
-        $record = DB::transaction(function () use ($validated): Attendance {
-            $employee = Employee::query()
+        $date = Carbon::now('Asia/Jakarta')->toDateString();
+
+        try {
+            $record = DB::transaction(function () use ($validated, $date): Attendance {
+                $employee = Employee::query()
+                    ->where('employee_id', $validated['employeeId'])
+                    ->where('active', true)
+                    ->first();
+
+                if (! $employee) {
+                    throw ValidationException::withMessages([
+                        'employeeId' => ['Karyawan aktif tidak ditemukan.'],
+                    ]);
+                }
+
+                $type = $validated['type'];
+                $todayRecords = Attendance::query()
+                    ->where('employee_id', $employee->employee_id)
+                    ->whereDate('date', $date);
+
+                if ($type === 'Masuk' && (clone $todayRecords)->where('type', 'Masuk')->exists()) {
+                    throw ValidationException::withMessages([
+                        'type' => ['Presensi masuk hari ini sudah tercatat.'],
+                    ]);
+                }
+
+                if ($type === 'Pulang' && ! (clone $todayRecords)->where('type', 'Masuk')->exists()) {
+                    throw ValidationException::withMessages([
+                        'type' => ['Presensi masuk harus dilakukan sebelum presensi pulang.'],
+                    ]);
+                }
+
+                if ($type === 'Pulang' && (clone $todayRecords)->where('type', 'Pulang')->exists()) {
+                    throw ValidationException::withMessages([
+                        'type' => ['Presensi pulang hari ini sudah tercatat.'],
+                    ]);
+                }
+
+                $time = Carbon::now('Asia/Jakarta')->format('H:i');
+
+                return Attendance::query()->create([
+                    'employee_id' => $employee->employee_id,
+                    'type' => $type,
+                    'date' => $date,
+                    'time' => $time,
+                    'status' => $type === 'Masuk' && $time > '09:00' ? 'Terlambat' : 'Tepat waktu',
+                ]);
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            $duplicateExists = Attendance::query()
                 ->where('employee_id', $validated['employeeId'])
-                ->where('active', true)
-                ->first();
+                ->whereDate('date', $date)
+                ->where('type', $validated['type'])
+                ->exists();
 
-            if (! $employee) {
-                throw ValidationException::withMessages([
-                    'employeeId' => ['Karyawan aktif tidak ditemukan.'],
-                ]);
+            if (! $duplicateExists) {
+                throw $exception;
             }
 
-            $date = Carbon::now('Asia/Jakarta')->toDateString();
-            $type = $validated['type'];
-            $todayRecords = Attendance::query()
-                ->where('employee_id', $employee->employee_id)
-                ->whereDate('date', $date);
-
-            if ($type === 'Masuk' && (clone $todayRecords)->where('type', 'Masuk')->exists()) {
-                throw ValidationException::withMessages([
-                    'type' => ['Presensi masuk hari ini sudah tercatat.'],
-                ]);
-            }
-
-            if ($type === 'Pulang' && ! (clone $todayRecords)->where('type', 'Masuk')->exists()) {
-                throw ValidationException::withMessages([
-                    'type' => ['Presensi masuk harus dilakukan sebelum presensi pulang.'],
-                ]);
-            }
-
-            if ($type === 'Pulang' && (clone $todayRecords)->where('type', 'Pulang')->exists()) {
-                throw ValidationException::withMessages([
-                    'type' => ['Presensi pulang hari ini sudah tercatat.'],
-                ]);
-            }
-
-            $time = Carbon::now('Asia/Jakarta')->format('H:i');
-
-            return Attendance::query()->create([
-                'employee_id' => $employee->employee_id,
-                'type' => $type,
-                'date' => $date,
-                'time' => $time,
-                'status' => $type === 'Masuk' && $time > '09:00' ? 'Terlambat' : 'Tepat waktu',
+            throw ValidationException::withMessages([
+                'type' => [$validated['type'] === 'Masuk'
+                    ? 'Presensi masuk hari ini sudah tercatat.'
+                    : 'Presensi pulang hari ini sudah tercatat.'],
             ]);
-        });
+        }
 
         return response()->json($this->formatRecord($record->load('employee')), 201);
     }

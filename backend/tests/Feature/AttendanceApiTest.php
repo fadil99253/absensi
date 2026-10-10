@@ -90,6 +90,41 @@ class AttendanceApiTest extends TestCase
         ])->assertCreated()->assertJsonPath('type', 'Pulang');
     }
 
+    public function test_employee_must_check_in_before_checking_out_and_cannot_check_out_twice(): void
+    {
+        Employee::query()->create([
+            'employee_id' => 'EMP-TEST',
+            'name' => 'Karyawan Tes',
+            'department' => 'Produk',
+            'active' => true,
+        ]);
+
+        $user = User::query()->create([
+            'name' => 'Admin HadirKu',
+            'email' => 'admin@hadirku.id',
+            'password' => Hash::make('hadirku123'),
+        ]);
+        $this->withToken($user->createToken('test')->plainTextToken);
+
+        $this->postJson('/api/attendance', [
+            'employeeId' => 'EMP-TEST',
+            'type' => 'Pulang',
+        ])->assertUnprocessable();
+
+        $this->postJson('/api/attendance', [
+            'employeeId' => 'EMP-TEST',
+            'type' => 'Masuk',
+        ])->assertCreated();
+
+        $checkout = [
+            'employeeId' => 'EMP-TEST',
+            'type' => 'Pulang',
+        ];
+
+        $this->postJson('/api/attendance', $checkout)->assertCreated();
+        $this->postJson('/api/attendance', $checkout)->assertUnprocessable();
+    }
+
     public function test_employee_id_is_returned_using_frontend_api_shape(): void
     {
         Employee::query()->create([

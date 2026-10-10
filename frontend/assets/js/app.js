@@ -9,6 +9,7 @@ const state = {
   query: "",
   cameraStream: null,
   captured: false,
+  clockTimer: null,
 };
 
 const icons = {
@@ -46,6 +47,7 @@ async function api(url, options = {}) {
     if (response.status === 401 && token) {
       sessionStorage.removeItem("hadirkuUser");
       stopCamera();
+      stopClock();
       app.innerHTML = loginPage();
       showToast("Sesi berakhir. Silakan masuk kembali.");
     }
@@ -162,7 +164,7 @@ async function renderAttendance() {
 
 async function renderEmployees() {
   state.employees = await api("/api/employees");
-  const cards = state.employees.map((employee) => `<article class="employee-card"><div class="employee-card-top"><div class="avatar">${initials(employee.name)}</div><div><strong>${escapeHtml(employee.name)}</strong><small>${escapeHtml(employee.role)}</small></div></div><div class="employee-meta"><span>${escapeHtml(employee.id)} · ${escapeHtml(employee.department)}</span><span class="badge">Aktif</span></div></article>`).join("");
+  const cards = state.employees.map((employee) => `<article class="employee-card"><div class="employee-card-top"><div class="avatar">${initials(employee.name)}</div><div><strong>${escapeHtml(employee.name)}</strong><small>${escapeHtml(employee.role)}</small></div></div><div class="employee-meta"><span>${escapeHtml(employee.id)} · ${escapeHtml(employee.department)}</span><span class="badge ${employee.active ? "" : "neutral"}">${employee.active ? "Aktif" : "Nonaktif"}</span></div></article>`).join("");
   return `${pageHeading("Data Karyawan", "Daftar karyawan yang terdaftar di sistem HadirKu.", `<button class="button button-primary" data-action="add-employee">＋ &nbsp; Tambah Karyawan</button>`)}
     <div class="filter-bar"><input class="search-input" id="search-employees" type="search" placeholder="⌕  Cari nama, departemen, atau ID..."></div>
     <div class="employee-grid" id="employee-grid">${cards || '<div class="empty-state">Belum ada data karyawan.</div>'}</div>`;
@@ -198,6 +200,7 @@ function loginPage() {
 async function render() {
   if (!getUser()) {
     stopCamera();
+    stopClock();
     app.innerHTML = loginPage();
     return;
   }
@@ -226,6 +229,13 @@ function stopCamera() {
   }
 }
 
+function stopClock() {
+  if (state.clockTimer !== null) {
+    clearInterval(state.clockTimer);
+    state.clockTimer = null;
+  }
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     showToast("Kamera memerlukan HTTPS atau localhost dan browser yang mendukung.");
@@ -236,7 +246,10 @@ async function startCamera() {
     state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     const video = document.querySelector("#camera-video");
     const stage = document.querySelector("#camera-stage");
-    if (!video || !stage) return;
+    if (!video || !stage) {
+      stopCamera();
+      return;
+    }
     video.srcObject = state.cameraStream;
     stage.classList.add("camera-on");
     document.querySelector("#camera-status").textContent = "Kamera aktif";
@@ -257,6 +270,10 @@ async function capturePhoto() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const context = canvas.getContext("2d");
+  if (!context) {
+    showToast("Foto tidak dapat diproses oleh browser ini.");
+    return;
+  }
   context.translate(canvas.width, 0);
   context.scale(-1, 1);
   context.drawImage(video, 0, 0);
@@ -266,13 +283,13 @@ async function capturePhoto() {
 }
 
 function startClock() {
-  clearInterval(startClock.timer);
+  stopClock();
   const update = () => {
     const input = document.querySelector("#current-time");
     if (input) input.value = `${new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Jakarta" }).format(new Date())} WIB · ${dateLabel()}`;
   };
   update();
-  startClock.timer = setInterval(update, 1000);
+  state.clockTimer = setInterval(update, 1000);
 }
 
 function showEmployeeModal() {
@@ -304,6 +321,7 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.page) {
     if (state.page === "kiosk" && target.dataset.page !== "kiosk") {
       stopCamera();
+      stopClock();
       state.captured = false;
     }
     state.page = target.dataset.page;
@@ -339,6 +357,10 @@ app.addEventListener("click", async (event) => {
 app.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
+  if (form.dataset.submitting === "true") return;
+  form.dataset.submitting = "true";
+  const submitButton = form.querySelector('[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
   try {
     if (form.id === "login-form") {
       const result = await api("/api/login", { method: "POST", body: JSON.stringify({ email: form.elements["login-email"].value.trim(), password: form.elements["login-password"].value }) });
@@ -365,6 +387,9 @@ app.addEventListener("submit", async (event) => {
     }
   } catch (error) {
     showToast(error.message);
+  } finally {
+    delete form.dataset.submitting;
+    if (submitButton?.isConnected) submitButton.disabled = false;
   }
 });
 
@@ -397,5 +422,8 @@ app.addEventListener("input", async (event) => {
   }
 });
 
-window.addEventListener("beforeunload", stopCamera);
+window.addEventListener("beforeunload", () => {
+  stopCamera();
+  stopClock();
+});
 render();
