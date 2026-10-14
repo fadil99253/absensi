@@ -13,11 +13,24 @@ class Attendance extends Model
         'date',
         'time',
         'status',
+        'latitude',
+        'longitude',
+        'face_distance',
+        'match_score',
+        'photo_path',
+        'liveness_verified',
     ];
 
     protected function casts(): array
     {
-        return ['date' => 'date:Y-m-d'];
+        return [
+            'date' => 'date:Y-m-d',
+            'latitude' => 'float',
+            'longitude' => 'float',
+            'face_distance' => 'float',
+            'match_score' => 'float',
+            'liveness_verified' => 'boolean',
+        ];
     }
 
     public function employee(): BelongsTo

@@ -2,43 +2,33 @@
 
 namespace Database\Seeders;
 
-use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        User::query()->updateOrCreate(
-            ['email' => 'admin@hadirku.id'],
-            [
-                'name' => 'Admin HadirKu',
-                'password' => Hash::make('hadirku123'),
-            ],
-        );
+        $password = config('hadirku.admin_initial_password');
+        $generated = ! is_string($password) || $password === '';
+        $password = $generated ? Str::random(32) : $password;
+        if (strlen($password) < 10) {
+            throw new \InvalidArgumentException('ADMIN_INITIAL_PASSWORD harus memiliki minimal 10 karakter.');
+        }
+        $email = strtolower((string) config('hadirku.admin_initial_email'));
+        $admin = User::query()->firstOrNew(['email' => $email]);
 
-        $employees = [
-            ['EMP-001', 'Rizki Pratama', 'Product Designer', 'Produk', 'rizki@hadirku.id'],
-            ['EMP-002', 'Nadia Putri', 'Frontend Developer', 'Engineering', 'nadia@hadirku.id'],
-            ['EMP-003', 'Bima Saputra', 'Marketing Specialist', 'Marketing', 'bima@hadirku.id'],
-            ['EMP-004', 'Salsa Maharani', 'People Operations', 'People', 'salsa@hadirku.id'],
-            ['EMP-005', 'Dimas Kurniawan', 'Backend Developer', 'Engineering', 'dimas@hadirku.id'],
-            ['EMP-006', 'Alya Rahma', 'Finance Associate', 'Finance', 'alya@hadirku.id'],
-        ];
+        $admin->name = (string) config('hadirku.admin_initial_name');
+        $admin->username = strtoupper((string) config('hadirku.admin_initial_username'));
+        $admin->role = 'admin';
+        if (! $generated || ! $admin->exists) {
+            $admin->password = $password;
+        }
+        $admin->save();
 
-        foreach ($employees as [$id, $name, $role, $department, $email]) {
-            Employee::query()->updateOrCreate(
-                ['employee_id' => $id],
-                [
-                    'name' => $name,
-                    'role' => $role,
-                    'department' => $department,
-                    'email' => $email,
-                    'active' => true,
-                ],
-            );
+        if ($generated) {
+            fwrite(STDOUT, "Kata sandi awal admin (tampil sekali): {$password}".PHP_EOL);
         }
     }
 }
